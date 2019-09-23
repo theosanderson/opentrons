@@ -34,9 +34,11 @@ async def enter_bootloader(driver, model):
     new_port = ''
     try:
         if model == 'thermocycler':
-            volumes = [i for i in os.listdir('/dev/modules')
+            volumes = [i for i in ports_before_dfu_mode)
                        if os.path.isdir(i)]
+            log.debug(f"volumes: {volumes}")
             for volume in volumes:
+                log.debug(f"volume in volumes: {volume}, startswith: {volume.startswith('thermocycler_bootloader_volume')}")
                 if volume.startswith('thermocycler_bootloader_volume'):
                     new_port = volume
         else:
