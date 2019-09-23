@@ -49,7 +49,7 @@ def discover() -> List[Tuple[str, str]]:
     discovered_modules = []
 
     serial_interfaces = [f'tty\d+_{name}' for name in MODULE_TYPES.keys()]
-    module_port_regex = re.compile('|'.join(serial_interfaces), re.I)
+    module_port_regex = re.compile(f"{'|'.join(serial_interfaces)}$", re.I)
     for port in devices:
         match = module_port_regex.search(port)
         if match:
