@@ -37,7 +37,6 @@ async def enter_bootloader(driver, model):
         retries = 7
         while retries and (bootloader_volume == ''):
             ports = await _discover_ports()
-            log.debug(f"ports after:{retries} {ports}")
             volumes = [p for p in ports if os.path.isdir(f'/dev/modules/{p}')]
             log.debug(f"volumes:{retries} {volumes}")
             for volume in volumes:
@@ -47,7 +46,7 @@ async def enter_bootloader(driver, model):
                     bootloader_volume = volume
             retries -= 1
             await asyncio.sleep(1)
-        new_port = await _port_on_mode_switch(ports_before_dfu_mode)
+        return bootloader_volume
     else:
         driver.enter_programming_mode()
         driver.disconnect()
@@ -58,7 +57,7 @@ async def enter_bootloader(driver, model):
                 PORT_SEARCH_TIMEOUT)
         except asyncio.TimeoutError:
             pass
-    return new_port
+        return new_port
 
 
 async def update_firmware_avrdude(port: str,
@@ -106,22 +105,27 @@ async def update_firmware_avrdude(port: str,
     log.info("New port: {}".format(new_port))
     return new_port, avrdude_res
 
-async def update_firmware_uf2(port: str,
-                              firmware_file_path: str,
-                              loop: Optional[asyncio.AbstractEventLoop]):
-    ports_before_update = await _discover_ports()
+async def update_firmware_uf2(drive: str,
+                              firmware_file_path: str):
+    ports_before = await _discover_ports()
 
     was_successful = False
     try:
-        with open(firmware_file, "rb") as ff:
+        with open(firmware_file_path, "rb") as ff:
             buf = ff.read()
-            with open(f'/dev/modules/{bootloader_drive}/NEW.UF2', "wb") as bd:
+            with open(f'/dev/modules/{drive}/NEW.UF2', "wb") as bd:
                 bd.write(buf)
         was_successful = True
     except IOError:
         pass
+    if not was_successful:
+        log.error(f"Failed to update module firmware for {drive}")
 
-    new_port = await _port_on_mode_switch(ports_before_update)
+    sans_bl_ports = [p for p in ports_before if 'bootloader' not in p]
+
+    # wait for bootloader ports to unmount and serial port to reappear
+    await asyncio.sleep(5)
+    new_port = await _port_on_mode_switch(sans_bl_ports)
     log.info("New port: {}".format(new_port))
     return new_port, was_successful
 
@@ -140,6 +144,9 @@ def _format_avrdude_response(raw_response: str) -> Tuple[bool, str]:
 async def _port_on_mode_switch(ports_before_switch):
     ports_after_switch = await _discover_ports()
     new_port = ''
+
+    log.debug(f"ports before:{ports_before_switch}")
+    log.debug(f"ports after:{ports_after_switch}")
     if ports_after_switch and \
             len(ports_after_switch) >= len(ports_before_switch) and \
             not set(ports_before_switch) == set(ports_after_switch):

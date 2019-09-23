@@ -438,6 +438,7 @@ class Thermocycler:
 
     def __del__(self):
         try:
-            self._poller.close()
+            if self._poller:
+                self._poller.close()
         except Exception:
             log.exception('Exception while cleaning up Thermocycler:')

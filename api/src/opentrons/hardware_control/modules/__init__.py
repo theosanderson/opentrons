@@ -88,13 +88,9 @@ async def update_firmware(
     if (cls == thermocycler.Thermocycler):
         drive = await module.prep_for_update()
         del module
-        with open(firmware_file, "rb") as ff:
-            buf = ff.read()
-            with open(f'/dev/modules/{bootloader_drive}/NEW.UF2', "wb") as bd:
-                bd.write(buf)
 
         after_port, was_successful = await update.update_firmware_uf2(
-                drive, firmware_file, loop)
+                drive, firmware_file)
         if not was_successful:
             raise UpdateError('Could not update the Thermocycler')
     else:
