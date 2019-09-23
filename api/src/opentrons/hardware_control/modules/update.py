@@ -26,31 +26,42 @@ async def enter_bootloader(driver, model):
     being either different or same as the one that the module was originally on
     So we check for changes in ports and use the appropriate one
     """
+
     # Required for old bootloader
     ports_before_dfu_mode = await _discover_ports()
 
-    driver.enter_programming_mode()
-    driver.disconnect()
-    new_port = ''
-    try:
-        if model == 'thermocycler':
-            volumes = [i for i in ports_before_dfu_mode)
-                       if os.path.isdir(i)]
-            log.debug(f"volumes: {volumes}")
+    if model == 'thermocycler':
+        bootloader_volume = ''
+        await driver.enter_programming_mode()
+        # takes around 4 seconds for drive to mount in /dev/modules
+        retries = 7
+        while retries and (bootloader_volume == ''):
+            ports = await _discover_ports()
+            log.debug(f"ports after:{retries} {ports}")
+            volumes = [p for p in ports if os.path.isdir(f'/dev/modules/{p}')]
+            log.debug(f"volumes:{retries} {volumes}")
             for volume in volumes:
-                log.debug(f"volume in volumes: {volume}, startswith: {volume.startswith('thermocycler_bootloader_volume')}")
+                log.debug(f"startswith: {volume.startswith('thermocycler_bootloader_volume')}")
                 if volume.startswith('thermocycler_bootloader_volume'):
-                    new_port = volume
-        else:
+                    log.debug(f"volume !!!: {volume}")
+                    bootloader_volume = volume
+            retries -= 1
+            await asyncio.sleep(1)
+        new_port = await _port_on_mode_switch(ports_before_dfu_mode)
+    else:
+        driver.enter_programming_mode()
+        driver.disconnect()
+        new_port = ''
+        try:
             new_port = await asyncio.wait_for(
                 _port_poll(_has_old_bootloader(model), ports_before_dfu_mode),
                 PORT_SEARCH_TIMEOUT)
-    except asyncio.TimeoutError:
-        pass
+        except asyncio.TimeoutError:
+            pass
     return new_port
 
 
-async def update_firmware(port: str,
+async def update_firmware_avrdude(port: str,
                           firmware_file_path: str,
                           loop: Optional[asyncio.AbstractEventLoop])\
                           -> Tuple[str, Tuple[bool, str]]:
@@ -65,7 +76,6 @@ async def update_firmware(port: str,
     found) and a tuple of success and message from avrdude.
     """
 
-    ports_before_update = await _discover_ports()
     config_file_path = os.path.join(package_root,
                                     'config', 'modules', 'avrdude.conf')
     kwargs: Dict[str, Any] = {
@@ -95,6 +105,26 @@ async def update_firmware(port: str,
     new_port = await _port_on_mode_switch(ports_before_update)
     log.info("New port: {}".format(new_port))
     return new_port, avrdude_res
+
+async def update_firmware_uf2(port: str,
+                              firmware_file_path: str,
+                              loop: Optional[asyncio.AbstractEventLoop]):
+    ports_before_update = await _discover_ports()
+
+    was_successful = False
+    try:
+        with open(firmware_file, "rb") as ff:
+            buf = ff.read()
+            with open(f'/dev/modules/{bootloader_drive}/NEW.UF2', "wb") as bd:
+                bd.write(buf)
+        was_successful = True
+    except IOError:
+        pass
+
+    new_port = await _port_on_mode_switch(ports_before_update)
+    log.info("New port: {}".format(new_port))
+    return new_port, was_successful
+
 
 
 def _format_avrdude_response(raw_response: str) -> Tuple[bool, str]:

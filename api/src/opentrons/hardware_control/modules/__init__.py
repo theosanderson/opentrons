@@ -84,24 +84,31 @@ async def update_firmware(
     cls = type(module)
     old_port = module.port
     callback = module.interrupt_callback
-    flash_port = await module.prep_for_update()
-    del module
 
     if (cls == thermocycler.Thermocycler):
-        # write 'firmware_file' to flash_port
-        # which in this case is actually a drive
-        # will probably have to discover modules again
-        # so you get the new port name, then create an instance
-        log.debug(f'here we write the firmware file, file: {firmware_file}, flashport {flash_port}')
+        drive = await module.prep_for_update()
+        del module
+        with open(firmware_file, "rb") as ff:
+            buf = ff.read()
+            with open(f'/dev/modules/{bootloader_drive}/NEW.UF2', "wb") as bd:
+                bd.write(buf)
+
+        after_port, was_successful = await update.update_firmware_uf2(
+                drive, firmware_file, loop)
+        if not was_successful:
+            raise UpdateError('Could not update the Thermocycler')
     else:
-        after_port, results = await update.update_firmware(flash_port,
+        flash_port = await module.prep_for_update()
+        del module
+        after_port, results = await update.update_firmware_avrdude(flash_port,
                                                        firmware_file,
                                                        loop)
         await asyncio.sleep(1.0)
 
+        if not results[0]:
+            raise UpdateError(results[1])
+
     new_port = after_port or old_port
-    if not results[0]:
-        raise UpdateError(results[1])
     return await cls.build(
         port=new_port,
         interrupt_callback=callback,

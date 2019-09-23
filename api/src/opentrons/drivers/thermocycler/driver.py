@@ -9,6 +9,7 @@ except ModuleNotFoundError:
     select = None  # type: ignore
 from time import sleep
 from typing import Optional, Mapping
+from serial import Serial
 from serial.serialutil import SerialException  # type: ignore
 from opentrons.drivers import serial_communication, utils
 from opentrons.drivers.serial_communication import SerialNoResponse
@@ -416,9 +417,9 @@ class Thermocycler:
     async def enter_programming_mode(self):
         port = self._poller._port
         self.disconnect()
-        connection = serial_communication.connect(port=port,
-                                     baudrate=TC_BOOTLOADER_BAUDRATE)
-        await asyncio.sleep(0.05)
+        log.info(f'ENTERING PROGRAMMING MODE at port: {port}')
+        connection = Serial(port, TC_BOOTLOADER_BAUDRATE, timeout=1)
+        await asyncio.sleep(0.005)
         connection.close()
 
     async def _write_and_wait(self, command):

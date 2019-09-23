@@ -75,20 +75,13 @@ async def _upload_to_module(hw, serialnum, fw_filename, loop):
     log.info(f"hw_mods: {hw_mods}")
     res = {}
     for module in hw_mods:
-        log.info(f"module serial: {module.device_info.get('serial')}, specified serial {serialnum}")
-        log.info("Module with serial {} found".format(serialnum))
         if module.device_info.get('serial') == serialnum:
-            # bootloader_port = await module.prep_for_update()
-            # if bootloader_port:
-                # module._port = bootloader_port
-            # else assume old bootloader connection on existing module port
             log.info("Uploading file to port: {}".format(
                 module.port))
             log.info("Flashing firmware. This will take a few seconds")
             try:
                 res = await asyncio.wait_for(
-                    modules.update_firmware(
-                        module, fw_filename, loop),
+                    hw.update_module(module, fw_filename, loop),
                     UPDATE_TIMEOUT)
             except asyncio.TimeoutError:
                 return {'message': 'AVRDUDE not responding'}
