@@ -34,9 +34,10 @@ async def enter_bootloader(driver, model):
     new_port = ''
     try:
         if model == 'thermocycler':
-            for volume in os.listdir('/media'):
-                log.debug(f'vol in media: {volume}')
-                if volume.startswith('tcb'):
+            volumes = [i for i in os.listdir('/dev/modules')
+                       if os.path.isdir(i)]
+            for volume in volumes:
+                if volume.startswith('thermocycler_bootloader_volume'):
                     new_port = volume
         else:
             new_port = await asyncio.wait_for(

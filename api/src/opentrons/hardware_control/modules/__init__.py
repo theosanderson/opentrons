@@ -48,7 +48,7 @@ def discover() -> List[Tuple[str, str]]:
 
     discovered_modules = []
 
-    module_port_regex = re.compile('|'.join(MODULE_TYPES.keys()), re.I)
+    module_port_regex = re.compile('|'.join(f'tty\d+_{MODULE_TYPES.keys()}'), re.I)
     for port in devices:
         match = module_port_regex.search(port)
         if match:
