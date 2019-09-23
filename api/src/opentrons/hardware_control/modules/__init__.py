@@ -48,11 +48,12 @@ def discover() -> List[Tuple[str, str]]:
 
     discovered_modules = []
 
-    module_port_regex = re.compile('|'.join(f'tty\d+_{MODULE_TYPES.keys()}'), re.I)
+    serial_interfaces = [f'tty\d+_{name}' for name in MODULE_TYPES.keys()]
+    module_port_regex = re.compile('|'.join(serial_interfaces), re.I)
     for port in devices:
         match = module_port_regex.search(port)
         if match:
-            name = match.group().lower()
+            name = match.group().lower().split('_')[1]
             if name not in MODULE_TYPES:
                 log.warning("Unexpected module connected: {} on {}"
                             .format(name, port))
