@@ -80,9 +80,10 @@ async def _upload_to_module(hw, serialnum, fw_filename, loop):
                 module.port))
             log.info("Flashing firmware. This will take a few seconds")
             try:
-                res = await asyncio.wait_for(
+                ok, message = await asyncio.wait_for(
                     hw.update_module(module, fw_filename, loop),
                     UPDATE_TIMEOUT)
+                res = {'message': message, 'filename': fw_filename}
             except asyncio.TimeoutError:
                 return {'message': 'AVRDUDE not responding'}
             break

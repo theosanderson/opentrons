@@ -7,7 +7,9 @@ from aiohttp import web
 from opentrons.server import init
 from opentrons.server.endpoints import update
 from opentrons.server.endpoints import serverlib_fallback
-from opentrons import modules, robot
+from opentrons import modules as legacy_modules, robot
+from opentrons import hardware_control
+from opentrons.hardware_control import modules
 
 
 async def test_restart(
@@ -98,21 +100,79 @@ async def test_ignore_updates(
 
 @pytest.fixture
 def dummy_attached_modules():
-    temp_module = modules.TempDeck()
     temp_port = 'tty1_tempdeck'
+    temp_module = legacy_modules.TempDeck()
     temp_serial = 'tdYYYYMMDD987'
     temp_module._device_info = {'serial': temp_serial}
-    mag_module = modules.MagDeck()
     mag_port = 'tty1_magdeck'
+    mag_module = legacy_modules.MagDeck()
     mag_serial = 'mdYYYYMMDD123'
     mag_module._device_info = {'serial': mag_serial}
+    tc_port = 'tty3_thermocycler'
+    tc_module = modules.thermocycler.Thermocycler(tc_port)
+    tc_serial = 'tcYYYYMMDD123'
+    tc_module._device_info = {'serial': tc_serial}
     return {
         temp_port + 'tempdeck': temp_module,
-        mag_port + 'magdeck': mag_module
+        mag_port + 'magdeck': mag_module,
+        tc_port + 'thermocycler': tc_module
     }
 
+@pytest.mark.api2_only
+async def test_update_module_uf2_firmware(
+        dummy_attached_modules,
+        virtual_smoothie_env,
+        loop,
+        aiohttp_client,
+        async_server,
+        monkeypatch):
 
-async def test_update_module_firmware(
+    app = init()
+    client = await loop.create_task(aiohttp_client(app))
+    serial_num = 'tcYYYYMMDD123'
+    fw_filename = 'dummyFirmware.uf2'
+    tmpdir = tempfile.mkdtemp("files")
+
+    with open(os.path.join(tmpdir, fw_filename), 'wb') as fd:
+        fd.write(bytes(0x1234))
+
+    async def dummy_discover_modules():
+        return
+
+    async def mock_enter_bootloader(module):
+        return '/dev/modules/thermocycler_bootloader_volume'
+
+    hw = async_server['com.opentrons.hardware']
+    monkeypatch.setattr(hw, '_attached_modules', dummy_attached_modules)
+    monkeypatch.setattr(hw, 'attached_modules', dummy_attached_modules)
+
+    monkeypatch.setattr(hw, 'discover_modules', dummy_discover_modules)
+    monkeypatch.setattr(modules.update, 'enter_bootloader', mock_enter_bootloader)
+
+    print(f'\n\n{hw._attached_modules} \n\n')
+    print(f'\n\n{hw.attached_modules.values()} \n\n')
+    # ========= Happy path ==========
+    res_msg = {'message': 'firmware update successful',
+               'filename': fw_filename}
+
+    async def mock_successful_upload_to_module(
+            module, fw_file, loop):
+        return res_msg
+
+    expected_res = res_msg
+
+    monkeypatch.setattr(legacy_modules,
+                        'update_firmware', mock_successful_upload_to_module)
+    resp = await client.post(
+        '/modules/{}/update'.format(serial_num),
+        data={'module_firmware': open(os.path.join(tmpdir, fw_filename))})
+
+    assert resp.status == 200
+    res = await resp.json()
+    assert res == expected_res
+
+
+async def test_update_module_avrdude_firmware(
         dummy_attached_modules,
         virtual_smoothie_env,
         loop,
@@ -136,7 +196,7 @@ async def test_update_module_firmware(
 
     monkeypatch.setattr(robot, 'discover_modules', dummy_discover_modules)
     monkeypatch.setattr(robot, '_attached_modules', dummy_attached_modules)
-    monkeypatch.setattr(modules, 'enter_bootloader', mock_enter_bootloader)
+    monkeypatch.setattr(legacy_modules, 'enter_bootloader', mock_enter_bootloader)
 
     # ========= Happy path ==========
     res_msg = {'message': 'Firmware update successful',
@@ -149,7 +209,7 @@ async def test_update_module_firmware(
 
     expected_res = res_msg
 
-    monkeypatch.setattr(modules,
+    monkeypatch.setattr(legacy_modules,
                         'update_firmware', mock_successful_upload_to_module)
     resp = await client.post(
         '/modules/{}/update'.format(serial_num),
@@ -183,7 +243,7 @@ async def test_fail_update_module_firmware(
 
     monkeypatch.setattr(robot, 'discover_modules', dummy_discover_modules)
     monkeypatch.setattr(robot, '_attached_modules', dummy_attached_modules)
-    monkeypatch.setattr(modules, 'enter_bootloader', mock_enter_bootloader)
+    monkeypatch.setattr(legacy_modules, 'enter_bootloader', mock_enter_bootloader)
 
     # ========= Case 1: Port not accessible =========
     res_msg1 = {'message': 'Firmware update failed',
@@ -196,7 +256,7 @@ async def test_fail_update_module_firmware(
 
     expected_res1 = res_msg1
 
-    monkeypatch.setattr(modules,
+    monkeypatch.setattr(legacy_modules,
                         'update_firmware', mock_failed_upload_to_module1)
     resp1 = await client.post(
         '/modules/{}/update'.format(serial_num),
@@ -217,7 +277,7 @@ async def test_fail_update_module_firmware(
 
     expected_res2 = res_msg2
 
-    monkeypatch.setattr(modules,
+    monkeypatch.setattr(legacy_modules,
                         'update_firmware', mock_failed_upload_to_module2)
     resp2 = await client.post(
         '/modules/{}/update'.format(serial_num),
@@ -235,7 +295,7 @@ async def test_fail_update_module_firmware(
             serialnum, fw_file, loop):
         await asyncio.sleep(2)
 
-    monkeypatch.setattr(modules,
+    monkeypatch.setattr(legacy_modules,
                         'update_firmware', mock_failed_upload_to_module3)
     update.UPDATE_TIMEOUT = 0.1
 

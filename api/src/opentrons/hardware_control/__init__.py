@@ -1360,7 +1360,7 @@ class API(HardwareAPILike):
         else:
             new_details = new_mod.port + new_mod.device_info['model']
             self._attached_modules[new_details] = new_mod
-            return {'ok': True, 'message': 'firmware update successful'}
+            return True, 'firmware update successful'
 
     async def _do_tp(self, pip, mount) -> top_types.Point:
         """ Execute the work of tip probe.
