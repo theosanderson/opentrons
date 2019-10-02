@@ -1,45 +1,52 @@
 // @flow
 // setup pipettes component
 import * as React from 'react'
-import { connect } from 'react-redux'
+import { useSelector, useDispatch } from 'react-redux'
 
 import { selectors as robotSelectors } from '../../robot'
 import { fetchPipettes, getPipettesState } from '../../robot-api'
 import { getPipetteModelSpecs } from '@opentrons/shared-data'
 import InstrumentItem from './InstrumentItem'
-import { RefreshWrapper } from '../Page'
 import { SectionContentHalf } from '../layout'
 import InfoSection from './InfoSection'
 import InstrumentWarning from './InstrumentWarning'
+import PipetteCompatWarningModal from './PipetteCompatWarningModal'
 
-import type { State, Dispatch } from '../../types'
 import type { Pipette } from '../../robot'
 import type { PipettesState } from '../../robot-api'
 import type { Robot } from '../../discovery'
 
-type OP = {| robot: Robot |}
-
-type SP = {|
-  pipettes: Array<Pipette>,
-  actualPipettes: PipettesState,
-  changePipetteUrl: string,
-|}
-
-type DP = {| fetchPipettes: () => mixed |}
-
-type Props = { ...OP, ...SP, ...DP }
+type PipetteCompat =
+  | 'match'
+  | 'silentMismatch'
+  | 'loudMismatch'
+  | 'incompatible'
 
 const TITLE = 'Required Pipettes'
 
-export default connect<Props, OP, SP, DP, State, Dispatch>(
-  mapStateToProps,
-  mapDispatchToProps
-)(ProtocolPipettes)
+const LOUD_MISMATCH_MAP = {
+  p10_single: 'p20_single_gen2',
+  p300_single: 'p300_single_gen2',
+  p1000_single: 'p1000_single_gen2',
+}
+const INCOMPAT_MAP = {
+  p300_single_gen2: 'p300_single',
+  p1000_single_gen2: 'p1000_single',
+}
+
+type Props = {| robot: Robot |}
 
 function ProtocolPipettes(props: Props) {
-  const { pipettes, actualPipettes, fetchPipettes, changePipetteUrl } = props
-
-  if (pipettes.length === 0) return null
+  const pipettes: Array<Pipette> = useSelector(robotSelectors.getPipettes)
+  const actualPipettes: PipettesState = useSelector(state =>
+    getPipettesState(state, props.robot.name)
+  )
+  // TODO(mc, 2018-10-10): pass this as prop down from page
+  const changePipetteUrl = `/robots/${props.robot.name}/instruments`
+  const dispatch = useDispatch()
+  React.useEffect(() => {
+    dispatch(fetchPipettes(props.robot))
+  })
 
   const pipetteInfo = pipettes.map(p => {
     const pipetteConfig = p.modelSpecs
@@ -48,54 +55,66 @@ function ProtocolPipettes(props: Props) {
     )
     const displayName = pipetteConfig?.displayName || 'N/A'
 
-    let pipettesMatch = true
+    let compatibility: PipetteCompat = 'match'
 
     if (pipetteConfig && pipetteConfig.name !== actualPipetteConfig?.name) {
-      pipettesMatch = false
+      compatibility = 'silentMismatch'
+      if (INCOMPAT_MAP[pipetteConfig.name] === actualPipetteConfig?.name) {
+        compatibility = 'incompatible'
+      } else if (
+        LOUD_MISMATCH_MAP[pipetteConfig.name] === actualPipetteConfig?.name
+      ) {
+        compatibility = 'loudMismatch'
+      }
     }
 
     return {
       ...p,
       displayName,
-      pipettesMatch,
+      compatibility,
     }
   })
 
-  const pipettesMatch = pipetteInfo.every(p => p.pipettesMatch)
+  const pipettesMatch = pipetteInfo.every(p => p.compatibility === 'match')
+
+  const [isWarningModalOpen, setIsWarningModalOpen] = React.useState(
+    !pipettesMatch
+  )
+
+  if (pipettes.length === 0) return null
+
+  const incompatiblePipettes = pipetteInfo.filter(
+    p => p.compatibility === 'incompatible'
+  )
+  const loudMismatchPipettes = pipetteInfo.filter(
+    p => p.compatibility === 'loudMismatch'
+  )
 
   return (
-    <RefreshWrapper refresh={fetchPipettes}>
-      <InfoSection title={TITLE}>
-        <SectionContentHalf>
-          {pipetteInfo.map(p => (
-            <InstrumentItem
-              key={p.mount}
-              match={p.pipettesMatch}
-              mount={p.mount}
-            >
-              {p.displayName}
-            </InstrumentItem>
-          ))}
-        </SectionContentHalf>
-        {!pipettesMatch && (
-          <InstrumentWarning instrumentType="pipette" url={changePipetteUrl} />
-        )}
-      </InfoSection>
-    </RefreshWrapper>
+    <InfoSection title={TITLE}>
+      <SectionContentHalf>
+        {pipetteInfo.map(p => (
+          <InstrumentItem
+            key={p.mount}
+            match={p.compatibility === 'match'}
+            mount={p.mount}
+          >
+            {p.displayName}
+          </InstrumentItem>
+        ))}
+      </SectionContentHalf>
+      {!pipettesMatch && (
+        <InstrumentWarning instrumentType="pipette" url={changePipetteUrl} />
+      )}
+      {isWarningModalOpen && (
+        <PipetteCompatWarningModal
+          incompatiblePipettes={incompatiblePipettes}
+          loudMismatchPipettes={loudMismatchPipettes}
+          close={() => setIsWarningModalOpen(false)}
+        />
+      )}
+    </InfoSection>
   )
 }
 
-function mapStateToProps(state: State, ownProps: OP): SP {
-  return {
-    pipettes: robotSelectors.getPipettes(state),
-    actualPipettes: getPipettesState(state, ownProps.robot.name),
-    // TODO(mc, 2018-10-10): pass this prop down from page
-    changePipetteUrl: `/robots/${ownProps.robot.name}/instruments`,
-  }
-}
-
-function mapDispatchToProps(dispatch: Dispatch, ownProps: OP): DP {
-  return {
-    fetchPipettes: () => dispatch(fetchPipettes(ownProps.robot)),
-  }
-}
+export default ProtocolPipettes
