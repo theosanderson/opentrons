@@ -46,7 +46,7 @@ function ProtocolPipettes(props: Props) {
   const dispatch = useDispatch()
   React.useEffect(() => {
     dispatch(fetchPipettes(props.robot))
-  })
+  }, [])
 
   const pipetteInfo = pipettes.map(p => {
     const pipetteConfig = p.modelSpecs
