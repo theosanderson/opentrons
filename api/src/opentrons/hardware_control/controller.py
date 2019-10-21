@@ -1,4 +1,5 @@
 import asyncio
+import aionotify
 from contextlib import contextmanager, ExitStack
 import logging
 from typing import Any, Dict, List, Optional, Tuple
@@ -12,6 +13,7 @@ from . import modules
 
 
 MODULE_LOG = logging.getLogger(__name__)
+MODULE_PATH = pathlib.Path("/dev/modules")
 
 
 class Controller:
@@ -38,6 +40,12 @@ class Controller:
         self._smoothie_driver = driver_3_0.SmoothieDriver_3_0_0(
             config=self.config, handle_locks=False)
         self._cached_fw_version: Optional[str] = None
+        self._attached_modules = modules.discover()
+        self._file_sys_watcher = aionotify.Watcher()
+        self._file_sys_watcher.watch(alias="modules", path=str(
+            PATH), flags=aionotify.Flags.CLOSE_WRITE)
+        self._loop = asyncio.get_event_loop()
+        self._loop.run_until_complete(self._watch_attached_modules())
 
     def update_position(self) -> Dict[str, float]:
         self._smoothie_driver.update_position()
@@ -110,8 +118,15 @@ class Controller:
     def set_pipette_speed(self, val: float):
         self._smoothie_driver.set_speed(val)
 
+    async def _watch_attached_modules(self):
+        await self._file_sys_watcher.setup(self._loop)
+        while True:
+            event = await self._file_sys_watcher.get_event()
+            MODULE_LOG.info(f'File Sys Event: {event.name}')
+        self._file_sys_watcher.close()
+
     def get_attached_modules(self) -> List[Tuple[str, str]]:
-        return modules.discover()
+        return self._attached_modules
 
     async def build_module(self,
                            port: str,
