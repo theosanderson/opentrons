@@ -2,6 +2,8 @@ import logging
 
 from .util import log_call
 
+from ..labware import get_all_labware_definitions
+
 log = logging.getLogger(__name__)
 
 
@@ -23,7 +25,7 @@ def load(robot, container_name, slot, label=None, share=False):
 
 @log_call(log)
 def list():
-    return []
+    return get_all_labware_definitions()
 
 
 @log_call(log)
