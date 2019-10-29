@@ -43,7 +43,7 @@ class Controller:
         self._attached_modules = modules.discover()
         self._file_sys_watcher = aionotify.Watcher()
         self._file_sys_watcher.watch(alias="modules", path=str(
-            PATH), flags=aionotify.Flags.CLOSE_WRITE)
+            PATH), flags=aionotify.Flags.ISDIR)
         self._loop = asyncio.get_event_loop()
         self._loop.run_until_complete(self._watch_attached_modules())
 
