@@ -1,8 +1,9 @@
 // @flow
-import { of, concat } from 'rxjs'
-import { switchMap } from 'rxjs/operators'
+import { of, concat, pipe, EMPTY } from 'rxjs'
+import { mergeMap, withLatestFrom, switchMap } from 'rxjs/operators'
 import { ofType } from 'redux-observable'
 
+import { getViewableRobotByName } from '../discovery'
 import { robotApiFetch } from './http'
 
 import type { Observable } from 'rxjs'
@@ -14,6 +15,7 @@ import type {
   RobotApiResponse,
   RobotApiAction,
   RobotApiActionLike,
+  RobotApiActionPayload,
   RobotApiRequestAction,
   RobotApiResponseAction,
   RobotApiActionType,
@@ -103,6 +105,28 @@ export const createBaseRobotApiEpic = (
       makeRobotApiRequest(a.payload, (a: any).meta)
     )
   )
+
+export const mapToRobotRequest = (state$: Observable<State>) => {
+  return pipe<
+    Observable<any>,
+    _,
+    Observable<[RobotApiRequest, RequestMeta, State]>
+  >(
+    withLatestFrom<any, State>(state$),
+    mergeMap<[any, State], _, [RobotApiRequest, RequestMeta, State]>(
+      ([action: any, state: State]) => {
+        const { payload, meta = {} } = (action: {
+          payload: RobotApiActionPayload,
+          meta: RequestMeta,
+        })
+        const { robotName, ...request } = payload
+        const host = getViewableRobotByName(state, robotName)
+
+        return host ? of([{ host, ...request }, meta, state]) : EMPTY
+      }
+    )
+  )
+}
 
 export const getRobotApiState = (
   state: State,

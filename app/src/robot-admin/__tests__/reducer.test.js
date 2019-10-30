@@ -21,7 +21,11 @@ describe('robotAdminReducer', () => {
       action: {
         type: 'robotAdmin:RESTART',
         meta: { robot: true },
-        payload: { host: mockRobot, method: 'POST', path: '/server/restart' },
+        payload: {
+          robotName: 'robotName',
+          method: 'POST',
+          path: '/server/restart',
+        },
       },
       state: {},
       expected: { robotName: { status: 'restart-pending' } },
@@ -104,6 +108,37 @@ describe('robotAdminReducer', () => {
         a: { status: 'restarting' },
       },
       expected: { a: { status: 'restarting' } },
+    },
+    {
+      name: 'handles robotApi:RESPONSE for GET /settings/reset/options',
+      action: {
+        type: 'robotApi:RESPONSE__GET__/settings/reset/options',
+        payload: {
+          host: mockRobot,
+          method: 'GET',
+          path: '/settings/reset/options',
+          body: {
+            options: [
+              { id: 'foo', name: 'Foo', description: 'foobar' },
+              { id: 'baz', name: 'Baz', description: 'bazqux' },
+            ],
+          },
+        },
+        meta: {},
+      },
+      state: {
+        robotName: {
+          resetConfigOptions: [],
+        },
+      },
+      expected: {
+        robotName: {
+          resetConfigOptions: [
+            { id: 'foo', name: 'Foo', description: 'foobar' },
+            { id: 'baz', name: 'Baz', description: 'bazqux' },
+          ],
+        },
+      },
     },
   ]
 

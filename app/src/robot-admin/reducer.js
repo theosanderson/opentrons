@@ -1,16 +1,11 @@
 // @flow
 import mapValues from 'lodash/mapValues'
-import { passRobotApiErrorAction } from '../robot-api/utils'
-import { DISCOVERY_UPDATE_LIST } from '../discovery/actions'
 import {
-  RESTART,
-  RESTART_PATH,
-  RESTART_PENDING_STATUS,
-  RESTART_FAILED_STATUS,
-  RESTARTING_STATUS,
-  UP_STATUS,
-  DOWN_STATUS,
-} from './constants'
+  passRobotApiResponseAction,
+  passRobotApiErrorAction,
+} from '../robot-api/utils'
+import { DISCOVERY_UPDATE_LIST } from '../discovery/actions'
+import * as Constants from './constants'
 
 import type { Action, ActionLike } from '../types'
 import type { RobotAdminState, PerRobotAdminState } from './types'
@@ -21,23 +16,50 @@ export function robotAdminReducer(
   state: RobotAdminState = INITIAL_STATE,
   action: Action | ActionLike
 ): RobotAdminState {
+  const successAction = passRobotApiResponseAction(action)
   const errAction = passRobotApiErrorAction(action)
+
+  if (successAction) {
+    const { host, path, body } = successAction.payload
+    const { name: robotName } = host
+    const robotState = state[robotName]
+
+    // response for GET /settings/reset/options
+    if (path === Constants.RESET_CONFIG_OPTIONS_PATH) {
+      return {
+        ...state,
+        [robotName]: { ...robotState, resetConfigOptions: body.options },
+      }
+    }
+  }
 
   if (errAction) {
     const { host, path } = errAction.payload
     const { name: robotName } = host
+    const robotState = state[robotName]
 
-    if (path === RESTART_PATH) {
-      return { ...state, [robotName]: { status: RESTART_FAILED_STATUS } }
+    if (path === Constants.RESTART_PATH) {
+      return {
+        ...state,
+        [robotName]: { ...robotState, status: Constants.RESTART_FAILED_STATUS },
+      }
     }
   }
 
   const strictAction: Action = (action: any)
 
   switch (strictAction.type) {
-    case RESTART: {
-      const robotName = strictAction.payload.host.name
-      return { ...state, [robotName]: { status: RESTART_PENDING_STATUS } }
+    case Constants.RESTART: {
+      const { robotName } = strictAction.payload
+      const robotState = state[robotName]
+
+      return {
+        ...state,
+        [robotName]: {
+          ...robotState,
+          status: Constants.RESTART_PENDING_STATUS,
+        },
+      }
     }
 
     case DISCOVERY_UPDATE_LIST: {
@@ -56,15 +78,15 @@ export function robotAdminReducer(
           let { status } = robotState
           const up = upByName[robotName]
 
-          if (up && status !== RESTART_PENDING_STATUS) {
-            status = UP_STATUS
-          } else if (!up && status === RESTART_PENDING_STATUS) {
-            status = RESTARTING_STATUS
-          } else if (!up && status !== RESTARTING_STATUS) {
-            status = DOWN_STATUS
+          if (up && status !== Constants.RESTART_PENDING_STATUS) {
+            status = Constants.UP_STATUS
+          } else if (!up && status === Constants.RESTART_PENDING_STATUS) {
+            status = Constants.RESTARTING_STATUS
+          } else if (!up && status !== Constants.RESTARTING_STATUS) {
+            status = Constants.DOWN_STATUS
           }
 
-          return { status }
+          return { ...robotState, status }
         }
       )
     }

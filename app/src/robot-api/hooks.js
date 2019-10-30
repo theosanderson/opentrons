@@ -1,13 +1,20 @@
 // @flow
 // hooks for components that depend on API state
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useCallback } from 'react'
+import { useDispatch, useSelector } from 'react-redux'
 import { usePrevious } from '@opentrons/components'
 
-import type { RobotApiResponse, RobotApiRequestState } from './types'
+import type { State } from '../types'
 
-export type Handlers = $Shape<{
+import type {
+  RobotApiActionPayload,
+  RobotApiResponse,
+  RobotApiRequestState,
+} from './types'
+
+export type Handlers = $Shape<{|
   onFinish: (response: RobotApiResponse) => mixed,
-}>
+|}>
 
 /**
  * React hook to trigger a Robot API action dispatch and call handlers through
@@ -73,4 +80,70 @@ export function useTriggerRobotApiAction(
     hasFiredRef.current = true
     trigger()
   }
+}
+
+/**
+ * React hook to trigger a Robot API action dispatch and call handlers through
+ * the lifecycle of the triggered request
+ *
+ * @param {Handlers} [handlers={}] (lifecycle handlers)
+ * @param {(RobotApiResponse) => mixed} [handlers.onFinish] (request finish handler; called on success or error)
+ * @returns {(action) => void} (function that will dispatch `action`)
+ *
+ * @example
+ * import * as React from 'react'
+ * import {fetchSettings} from '../../robot-settings'
+ * import type {RobotHost} from '../../robot-api'
+ *
+ * type Props = {| robot: RobotHost, goToNextScreen: () => mixed |}
+ *
+ * function FetchPipettesButton(props: Props) {
+ *   const { robot, goToNextScreen } = props
+ *   const dispatchFetch = useDispatchApiAction({onFinish: goToNextScreen})
+ *   const handleClick = dispatchFetch(() => fetchSettings(robot))
+ *
+ *   return <button onClick={handleClick}>Check Pipettes</button>
+ * }
+ */
+export function useDispatchApiAction<A: { payload: RobotApiActionPayload }>(
+  handlers: Handlers = {}
+): (action: A) => void {
+  const savedRequest = useRef<RobotApiActionPayload | null>(null)
+  const savedHandlers = useRef()
+  const dispatch = useDispatch<(A) => mixed>()
+  const requestState = useSelector((state: State) => {
+    if (!savedRequest.current) return null
+    const { robotName, path } = savedRequest.current
+    return state.robotApi[robotName]?.networking[path] || null
+  })
+  const prevRequest = usePrevious(requestState)
+
+  useEffect(() => {
+    savedHandlers.current = handlers
+  }, [handlers])
+
+  useEffect(() => {
+    const onFinish = savedHandlers.current?.onFinish
+
+    if (savedRequest.current) {
+      const prevResponse = prevRequest?.response
+      const nextResponse = requestState?.response
+
+      // if prevResponse is null and nextResponse exists, fetch has finished
+      if (!prevResponse && nextResponse) {
+        savedRequest.current = null
+        if (typeof onFinish === 'function') onFinish(nextResponse)
+      }
+    }
+  }, [prevRequest, requestState])
+
+  return useCallback(
+    (action: A) => {
+      if (!savedRequest.current) {
+        savedRequest.current = action.payload
+        dispatch(action)
+      }
+    },
+    [dispatch]
+  )
 }

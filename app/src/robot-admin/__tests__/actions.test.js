@@ -14,14 +14,41 @@ describe('robot admin actions', () => {
     {
       name: 'robotAdmin:RESTART',
       creator: Actions.restartRobot,
-      args: [{ name: 'robotName', ip: 'localhost', port: 31950 }],
+      args: ['robotName'],
       expected: {
         type: 'robotAdmin:RESTART',
         meta: { robot: true },
         payload: {
-          host: { name: 'robotName', ip: 'localhost', port: 31950 },
+          robotName: 'robotName',
           method: 'POST',
           path: '/server/restart',
+        },
+      },
+    },
+    {
+      name: 'robotAdmin:FETCH_RESET_CONFIG_OPTIONS',
+      creator: Actions.fetchResetConfigOptions,
+      args: ['robotName'],
+      expected: {
+        type: 'robotAdmin:FETCH_RESET_CONFIG_OPTIONS',
+        payload: {
+          robotName: 'robotName',
+          method: 'GET',
+          path: '/settings/reset/options',
+        },
+      },
+    },
+    {
+      name: 'robotAdmin:RESET_CONFIG',
+      creator: Actions.resetConfig,
+      args: ['robotName', { foo: true, bar: false }],
+      expected: {
+        type: 'robotAdmin:RESET_CONFIG',
+        payload: {
+          robotName: 'robotName',
+          method: 'POST',
+          path: '/settings/reset',
+          body: { foo: true, bar: false },
         },
       },
     },

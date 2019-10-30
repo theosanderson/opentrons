@@ -1,4 +1,6 @@
 // @flow
+import { pipe, EMPTY } from 'rxjs'
+import { filter, mapTo } from 'rxjs/operators'
 import { TestScheduler } from 'rxjs/testing'
 
 import * as ApiUtils from '../../robot-api/utils'
@@ -25,6 +27,9 @@ const mockPassRobotApiResponseAction: JestMockFn<
   RobotApiResponseAction | null
 > = ApiUtils.passRobotApiResponseAction
 
+const mockMapToRobotRequest: JestMockFn<Array<any>, any> =
+  ApiUtils.mapToRobotRequest
+
 const mockGetRestartPath: JestMockFn<Array<any>, string | null> =
   SettingsSelectors.getRobotRestartPath
 
@@ -37,10 +42,27 @@ const setupMockMakeApiRequest = cold => {
   )
 }
 
+const setupMockMapToRobotRequest = (expectedState$, action) => {
+  mockMapToRobotRequest.mockImplementation(state$ => {
+    expect(state$).toBe(expectedState$)
+
+    return pipe(
+      filter(a => a === action),
+      mapTo([
+        { ...action.payload, host: mockRobot },
+        action.meta || {},
+        mockState,
+      ])
+    )
+  })
+}
+
 describe('robotAdminEpic', () => {
   let testScheduler
 
   beforeEach(() => {
+    mockMapToRobotRequest.mockImplementation(() => () => EMPTY)
+
     testScheduler = new TestScheduler((actual, expected) => {
       expect(actual).toEqual(expected)
     })
@@ -50,41 +72,42 @@ describe('robotAdminEpic', () => {
     jest.resetAllMocks()
   })
 
-  test('makes POST /server/restart request on RESTART', () => {
-    const action = Actions.restartRobot(mockRobot)
+  test('makes request on RESTART', () => {
+    const action = Actions.restartRobot(mockRobot.name)
 
     testScheduler.run(({ hot, cold, expectObservable }) => {
-      setupMockMakeApiRequest(cold)
-      mockGetRestartPath.mockReturnValue(null)
-
       const action$ = hot('-a', { a: action })
       const state$ = hot('a-', { a: mockState })
-      const output$ = robotAdminEpic(action$, state$)
 
-      expectObservable(output$).toBe('--a', {
-        a: {
-          req: { host: mockRobot, method: 'POST', path: '/server/restart' },
-          meta: {},
-        },
+      setupMockMakeApiRequest(cold)
+      setupMockMapToRobotRequest(state$, action)
+      mockGetRestartPath.mockReturnValue(null)
+
+      expectObservable(robotAdminEpic(action$, state$)).toBe('--a', {
+        a: { req: { ...action.payload, host: mockRobot }, meta: action.meta },
       })
     })
   })
 
-  test('makes a POST to the settings restart path on RESTART is applicable', () => {
-    const action = Actions.restartRobot(mockRobot)
+  test('makes request to the settings restart path on RESTART if applicable', () => {
+    const action = Actions.restartRobot(mockRobot.name)
 
     testScheduler.run(({ hot, cold, expectObservable }) => {
-      setupMockMakeApiRequest(cold)
-      mockGetRestartPath.mockReturnValue('/restart')
-
       const action$ = hot('-a', { a: action })
       const state$ = hot('a-', { a: mockState })
-      const output$ = robotAdminEpic(action$, state$)
 
-      expectObservable(output$).toBe('--a', {
+      setupMockMakeApiRequest(cold)
+      setupMockMapToRobotRequest(state$, action)
+      mockGetRestartPath.mockImplementation((state, robotName) => {
+        expect(state).toEqual(mockState)
+        expect(robotName).toEqual(mockRobot.name)
+        return '/restart'
+      })
+
+      expectObservable(robotAdminEpic(action$, state$)).toBe('--a', {
         a: {
-          req: { host: mockRobot, method: 'POST', path: '/restart' },
-          meta: {},
+          req: { ...action.payload, host: mockRobot, path: '/restart' },
+          meta: action.meta,
         },
       })
     })
@@ -113,6 +136,67 @@ describe('robotAdminEpic', () => {
 
       expectObservable(output$).toBe('-a', {
         a: DiscoveryActions.startDiscovery(60000),
+      })
+    })
+  })
+
+  test('makes request on FETCH_RESET_CONFIG_OPTIONS', () => {
+    const action = Actions.fetchResetConfigOptions(mockRobot.name)
+
+    testScheduler.run(({ hot, cold, expectObservable }) => {
+      const action$ = hot('-a', { a: action })
+      const state$ = hot('a-', { a: mockState })
+
+      setupMockMakeApiRequest(cold)
+      setupMockMapToRobotRequest(state$, action)
+
+      expectObservable(robotAdminEpic(action$, state$)).toBe('--a', {
+        a: { req: { ...action.payload, host: mockRobot }, meta: {} },
+      })
+    })
+  })
+
+  test('makes request on RESET_CONFIG', () => {
+    const action = Actions.resetConfig(mockRobot.name, { foo: true })
+
+    testScheduler.run(({ hot, cold, expectObservable }) => {
+      const action$ = hot('-a', { a: action })
+      const state$ = hot('a-', { a: mockState })
+
+      setupMockMakeApiRequest(cold)
+      setupMockMapToRobotRequest(state$, action)
+
+      expectObservable(robotAdminEpic(action$, state$)).toBe('--a', {
+        a: { req: { ...action.payload, host: mockRobot }, meta: {} },
+      })
+    })
+  })
+
+  test('dispatches robotAdmin:RESTART on POST /settings/reset', () => {
+    const action = {
+      type: 'robotApi:RESPONSE__POST__/settings/reset',
+      payload: {
+        ok: true,
+        status: 200,
+        host: mockRobot,
+        method: 'POST',
+        path: '/settings/reset',
+        body: {},
+      },
+      meta: {},
+    }
+
+    mockPassRobotApiResponseAction.mockReturnValue(action)
+
+    testScheduler.run(({ hot, cold, expectObservable }) => {
+      setupMockMakeApiRequest(cold)
+
+      const action$ = hot('-a', { a: action })
+      const state$ = hot('a-', { a: mockState })
+      const output$ = robotAdminEpic(action$, state$)
+
+      expectObservable(output$).toBe('-a', {
+        a: Actions.restartRobot(mockRobot.name),
       })
     })
   })

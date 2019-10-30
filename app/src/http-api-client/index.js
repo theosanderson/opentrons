@@ -3,9 +3,7 @@
 import { combineReducers } from 'redux'
 import apiReducer from './reducer'
 import { calibrationReducer, type CalibrationAction } from './calibration'
-import type { HealthAction } from './health'
 import type { MotorsAction } from './motors'
-import type { ResetAction } from './reset'
 import { robotReducer, type RobotAction } from './robot'
 import type { NetworkingAction } from './networking'
 import type { Action } from '../types'
@@ -41,10 +39,8 @@ export type State = $Call<typeof reducer, void, Action>
 
 export type HttpApiAction =
   | CalibrationAction
-  | HealthAction
   | MotorsAction
   | NetworkingAction
-  | ResetAction
   | RobotAction
 
 export { getRobotApiState } from './reducer'
@@ -56,10 +52,6 @@ export {
   makeGetDeckCalibrationStartState,
   makeGetDeckCalibrationCommandState,
 } from './calibration'
-
-export * from './health'
-
-export * from './reset'
 
 export * from './motors'
 

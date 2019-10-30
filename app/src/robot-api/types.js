@@ -37,6 +37,11 @@ export type RobotApiResponse = {|
   ok: boolean,
 |}
 
+export type RobotApiActionPayload = $Diff<
+  {| ...RobotApiRequest, robotName: string |},
+  {| host: mixed |}
+>
+
 // action types
 
 export type RobotApiAction =
