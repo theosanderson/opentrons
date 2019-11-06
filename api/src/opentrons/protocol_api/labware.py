@@ -26,6 +26,8 @@ import jsonschema  # type: ignore
 from opentrons.types import Location
 from opentrons.types import Point
 from opentrons.config import CONFIG
+from opentrons.protocols.types import APIVersion
+from .definitions import MAX_SUPPORTED_VERSION
 
 from .util import requires_version
 
@@ -56,7 +58,6 @@ well_shapes = {
 }
 
 
-@requires_version(2, 0)
 class Well:
     """
     The Well class represents a  single well in a :py:class:`Labware`
@@ -67,7 +68,8 @@ class Well:
     def __init__(self, well_props: dict,
                  parent: Location,
                  display_name: str,
-                 has_tip: bool) -> None:
+                 has_tip: bool,
+                 api_level: APIVersion) -> None:
         """
         Create a well, and track the Point corresponding to the top-center of
         the well (this Point is in absolute deck coordinates)
@@ -83,6 +85,7 @@ class Well:
                        position of the parent of the Well (usually the
                        front-left corner of a labware)
         """
+        self._api_version = api_level
         self._display_name = display_name
         self._position\
             = Point(well_props['x'],
@@ -108,6 +111,11 @@ class Well:
                     well_props['shape']))
         self.max_volume = well_props['totalLiquidVolume']
         self._depth = well_props['depth']
+
+    @property  # type: ignore
+    @requires_version(2, 0)
+    def api_version(self) -> APIVersion:
+        return self._api_version
 
     @property  # type: ignore
     @requires_version(2, 0)
@@ -214,7 +222,6 @@ class Well:
         return hash(self.top().point)
 
 
-@requires_version(2, 0)
 class Labware:
     """
     This class represents a labware, such as a PCR plate, a tube rack, trough,
@@ -244,7 +251,8 @@ class Labware:
     """
     def __init__(
             self, definition: dict,
-            parent: Location, label: str = None) -> None:
+            parent: Location, label: str = None,
+            api_level: APIVersion = None) -> None:
         """
         :param definition: A dict representing all required data for a labware,
                            including metadata such as the display name of the
@@ -259,7 +267,20 @@ class Labware:
                        deck).
         :param str label: An optional label to use instead of the displayName
                           from the definition's metadata element
+        :param APIVersion api_level: the API version to set for the instance.
+                                     The :py:class:`.Labware` will
+                                     conform to this level. If not specified,
+                                     defaults to
+                                     :py:attr:`.MAX_SUPPORTED_VERSION`.
         """
+        if not api_level:
+            api_level = MAX_SUPPORTED_VERSION
+        if api_level > MAX_SUPPORTED_VERSION:
+            raise RuntimeError(
+                f'API version {api_level} is not supported by this '
+                f'robot software. Please either reduce your requested API '
+                f'version or update your robot.')
+        self._api_version = api_level
         if label:
             dn = label
         else:
@@ -284,6 +305,11 @@ class Labware:
 
         self._pattern = re.compile(r'^([A-Z]+)([1-9][0-9]*)$', re.X)
         self._definition = definition
+
+    @property  # type: ignore
+    @requires_version(2, 0)
+    def api_version(self) -> APIVersion:
+        return self._api_version
 
     def __getitem__(self, key: str) -> Well:
         return self.wells_by_name()[key]
@@ -341,7 +367,8 @@ class Labware:
                 self._well_definition[well],
                 Location(self._calibrated_offset, self),
                 "{} of {}".format(well, self._display_name),
-                self.is_tiprack)
+                self._is_tiprack,
+                self._api_version)
             for well in self._ordering]
 
     def _create_indexed_dictionary(self, group=0):
@@ -547,10 +574,15 @@ class Labware:
         """
         return self._dimensions['zDimension'] + self._calibrated_offset.z
 
+    @property
+    def _is_tiprack(self) -> bool:
+        """ as is_tiprack but not subject to version checking for speed """
+        return self._parameters['isTiprack']
+
     @property  # type: ignore
     @requires_version(2, 0)
     def is_tiprack(self) -> bool:
-        return self._parameters['isTiprack']
+        return self._is_tiprack
 
     @property  # type: ignore
     @requires_version(2, 0)
@@ -715,7 +747,7 @@ class Labware:
     def reset(self):
         """Reset all tips in a tiprack
         """
-        if self.is_tiprack:
+        if self._is_tiprack:
             for well in self.wells():
                 well.has_tip = True
 
@@ -746,7 +778,8 @@ class ModuleGeometry:
 
     def __init__(self,
                  definition: dict,
-                 parent: Location) -> None:
+                 parent: Location,
+                 api_level: APIVersion = None) -> None:
         """
         Create a Module for tracking the position of a module.
 
@@ -765,7 +798,21 @@ class ModuleGeometry:
                        the outside of the module (usually the front-left corner
                        of a slot on the deck).
         :type parent: :py:class:`.Location`
+        :param APIVersion api_level: the API version to set for the loaded
+                                     :py:class:`ModuleGeometry` instance. The
+                                     :py:class:`ModuleGeometry` will
+                                     conform to this level. If not specified,
+                                     defaults to
+                                     :py:attr:`.MAX_SUPPORTED_VERSION`.
         """
+        if not api_level:
+            api_level = MAX_SUPPORTED_VERSION
+        if api_level > MAX_SUPPORTED_VERSION:
+            raise RuntimeError(
+                f'API version {api_level} is not supported by this '
+                f'robot software. Please either reduce your requested API '
+                f'version or update your robot.')
+        self._api_version = api_level
         self._parent = parent
         self._display_name = "{} on {}".format(definition["displayName"],
                                                str(parent.labware))
@@ -780,6 +827,10 @@ class ModuleGeometry:
         self._location = Location(
             point=self._offset + self._parent.point,
             labware=self)
+
+    @property
+    def api_version(self) -> APIVersion:
+        return self._api_version
 
     def add_labware(self, labware: Labware) -> Labware:
         assert not self._labware,\
@@ -830,8 +881,9 @@ class ModuleGeometry:
 
 
 class ThermocyclerGeometry(ModuleGeometry):
-    def __init__(self, definition: dict, parent: Location) -> None:
-        super().__init__(definition, parent)
+    def __init__(self, definition: Dict[str, Any], parent: Location,
+                 api_level: APIVersion = None) -> None:
+        super().__init__(definition, parent, api_level)
         self._lid_height = definition["dimensions"]["lidHeight"]
         self._lid_status = 'open'   # Needs to reflect true status
         # TODO: BC 2019-07-25 add affordance for "semi" configuration offset
@@ -864,7 +916,8 @@ class ThermocyclerGeometry(ModuleGeometry):
         # Block first three columns from being accessed
         definition = labware._definition
         definition['ordering'] = definition['ordering'][3::]
-        return Labware(definition, super().location)
+        return Labware(
+            definition, super().location, api_level=self._api_version)
 
     def add_labware(self, labware: Labware) -> Labware:
         assert not self._labware,\
@@ -1194,7 +1247,8 @@ def load(
     namespace: str = None,
     version: int = 1,
     bundled_defs: Dict[str, LabwareDefinition] = None,
-    extra_defs: Dict[str, LabwareDefinition] = None
+    extra_defs: Dict[str, LabwareDefinition] = None,
+    api_level: APIVersion = None,
 ) -> Labware:
     """
     Return a labware object constructed from a labware definition dict looked
@@ -1218,16 +1272,21 @@ def load(
     :param extra_defs: If specified, a mapping of labware names to labware
         definitions. If no bundle is passed, these definitions will also be
         searched.
+    :param APIVersion api_level: the API version to set for the loaded labware
+                                 instance. The :py:class:`.Labware` will
+                                 conform to this level. If not specified,
+                                 defaults to :py:attr:`.MAX_SUPPORTED_VERSION`.
     """
     definition = get_labware_definition(
         load_name, namespace, version,
         bundled_defs=bundled_defs,
         extra_defs=extra_defs)
-    return load_from_definition(definition, parent, label)
+    return load_from_definition(definition, parent, label, api_level)
 
 
 def load_from_definition(
-        definition: dict, parent: Location, label: str = None) -> Labware:
+        definition: dict, parent: Location, label: str = None,
+        api_level: APIVersion = None) -> Labware:
     """
     Return a labware object constructed from a provided labware definition dict
 
@@ -1242,8 +1301,12 @@ def load_from_definition(
                    (often the front-left corner of a slot on the deck).
     :param str label: An optional label that will override the labware's
                       display name from its definition
+    :param APIVersion api_level: the API version to set for the loaded labware
+                                 instance. The :py:class:`.Labware` will
+                                 conform to this level. If not specified,
+                                 defaults to :py:attr:`.MAX_SUPPORTED_VERSION`.
     """
-    labware = Labware(definition, parent, label)
+    labware = Labware(definition, parent, label, api_level)
     load_calibration(labware)
     return labware
 
@@ -1264,7 +1327,9 @@ def clear_calibrations():
 
 
 def load_module_from_definition(
-        definition: dict, parent: Location) -> ModuleGeometry:
+        definition: Dict[str, Any],
+        parent: Location,
+        api_level: APIVersion = None) -> ModuleGeometry:
     """
     Return a :py:class:`ModuleGeometry` object from a specified definition
 
@@ -1273,18 +1338,26 @@ def load_module_from_definition(
     :param parent: A :py:class:`.Location` representing the location where
                    the front and left most point of the outside of the module
                    is (often the front-left corner of a slot on the deck).
+    :param APIVersion api_level: the API version to set for the loaded
+                                 :py:class:`ModuleGeometry` instance. The
+                                 :py:class:`ModuleGeometry` will
+                                 conform to this level. If not specified,
+                                 defaults to :py:attr:`.MAX_SUPPORTED_VERSION`.
     """
     mod_name = definition['loadName']
     if mod_name == 'thermocycler':
         mod: ModuleGeometry = \
-                ThermocyclerGeometry(definition, parent)
+                ThermocyclerGeometry(definition, parent, api_level)
     else:
-        mod = ModuleGeometry(definition, parent)
+        mod = ModuleGeometry(definition, parent, api_level)
     # TODO: calibration
     return mod
 
 
-def load_module(name: str, parent: Location) -> ModuleGeometry:
+def load_module(
+        name: str,
+        parent: Location,
+        api_level: APIVersion = None) -> ModuleGeometry:
     """
     Return a :py:class:`ModuleGeometry` object from a definition looked up
     by name.
@@ -1295,12 +1368,17 @@ def load_module(name: str, parent: Location) -> ModuleGeometry:
     :param parent: A :py:class:`.Location` representing the location where
                    the front and left most point of the outside of the module
                    is (often the front-left corner of a slot on the deck).
+    :param APIVersion api_level: the API version to set for the loaded
+                                 :py:class:`ModuleGeometry` instance. The
+                                 :py:class:`ModuleGeometry` will
+                                 conform to this level. If not specified,
+                                 defaults to :py:attr:`.MAX_SUPPORTED_VERSION`.
     """
     def_path = 'shared_data/module/definitions/1.json'
     module_def = json.loads(
         pkgutil.get_data(  # type: ignore
             'opentrons', def_path).decode('utf-8'))  # type: ignore
-    return load_module_from_definition(module_def[name], parent)
+    return load_module_from_definition(module_def[name], parent, api_level)
 
 
 def quirks_from_any_parent(
