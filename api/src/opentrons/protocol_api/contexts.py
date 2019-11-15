@@ -650,6 +650,86 @@ class ProtocolContext(CommandPublisher):
         return trash  # type: ignore
 
 
+class MultichannelAsSingleChannelContext(InstrumentContext):
+
+
+    def __init__(self, based_on = None):
+        self.based_on = based_on
+
+    def api_version(self) -> APIVersion:
+        return self._api_version
+
+    @requires_version(2, 0)
+    def move_to(self, location: types.Location, force_direct: bool = False,
+                minimum_z_height: float = None,
+                speed: float = None
+                ) -> 'InstrumentContext':
+        """ Move the instrument.
+
+        :param location: The location to move to.
+        :type location: :py:class:`.types.Location`
+        :param force_direct: If set to true, move directly to destination
+                        without arc motion.
+        :param minimum_z_height: When specified, this Z margin is able to raise
+                                 (but never lower) the mid-arc height.
+        :param speed: The speed at which to move. By default,
+                      :py:attr:`InstrumentContext.default_speed`. This controls
+                      the straight linear speed of the motion; to limit
+                      individual axis speeds, you can use
+                      :py:attr:`.ProtocolContext.max_speeds`.
+        """
+        if self._ctx.location_cache:
+            from_lw = self._ctx.location_cache.labware
+        else:
+            from_lw = None
+
+        if not speed:
+            speed = self.default_speed
+
+        cp_override =  None
+        from_loc = types.Location(
+            self._hw_manager.hardware.gantry_position(
+                self._mount, critical_point=cp_override),
+            from_lw)
+
+        for mod in self._ctx._modules:
+            if isinstance(mod, ThermocyclerContext):
+                mod.flag_unsafe_move(to_loc=location, from_loc=from_loc)
+
+        moves = geometry.plan_moves(from_loc, location, self._ctx.deck,
+                                    force_direct=force_direct,
+                                    minimum_z_height=minimum_z_height)
+        self._log.debug("move_to: {}->{} via:\n\t{}"
+                        .format(from_loc, location, moves))
+        try:
+            for move in moves:
+                self._hw_manager.hardware.move_to(
+                    self._mount, move[0], critical_point=move[1], speed=speed,
+                    max_speeds=self._ctx.max_speeds.data)
+        except Exception:
+            self._ctx.location_cache = None
+            raise
+        else:
+            self._ctx.location_cache = location
+        return self
+
+    @property  # type: ignore
+    @requires_version(2, 0)
+    def channels(self) -> int:
+        """ The number of channels on the pipette. """
+        return self.hw_pipette['channels']
+
+    def __repr__(self):
+        return '<{}: {} in {}>'.format(self.__class__.__name__,
+                                       self.hw_pipette['model'],
+                                       self._mount.name)
+
+    def __str__(self):
+        return '{} on {} mount'.format(self.hw_pipette['display_name'],
+                                       self._mount.name.lower())
+
+
+
 class InstrumentContext(CommandPublisher):
     """ A context for a specific pipette or instrument.
 
