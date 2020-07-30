@@ -1345,8 +1345,10 @@ class API(HardwareAPILike):
         maybe_instr = self._attached_instruments[mount]
         assert maybe_instr, f'No instrument on {mount.name}'
         instr = maybe_instr
-        assert instr.has_tip, 'Cannot drop tip without a tip attached'
         self._log.info("Dropping tip off from {}".format(instr.name))
+        if not instr.has_tip:
+          self._log.warning("Attempting to drop tip from {} although"
+                          " no tip is attached.".format(instr.name))
         plunger_ax = Axis.of_plunger(mount)
         droptip = instr.config.drop_tip
         bottom = instr.config.bottom
